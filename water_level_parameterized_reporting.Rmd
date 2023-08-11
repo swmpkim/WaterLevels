@@ -65,9 +65,18 @@ download.file(url = url_path,
 print(paste0("Downloaded data from NWLON station ", stn))
 ```
 
+```{r findRowToRead}
+# read lines
+dat_head <- readLines(out_path)[1:100]
+
+# find the row that starts with Year
+start_row <- grep("^Year", dat_head)
+```
+
 
 ```{r subsetData}
-dat_raw <- read_csv(out_path)
+dat_raw <- read_csv(out_path, skip = start_row-1)
+names(dat_raw) <- tolower(names(dat_raw))
 dat <- dat_raw %>% 
     clean_names() %>%
     filter(year >= water_longterm_start,
