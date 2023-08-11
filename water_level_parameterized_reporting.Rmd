@@ -1,0 +1,165 @@
+---
+title: "Water Levels"
+date: "`r Sys.Date()`"
+output: 
+    html_document:
+        code_folding: hide
+params:
+    nwlonstn: "9413450"
+    waterstart: 1973
+    setstart: 2006
+    end: 2022
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+```{r loadLibraries}
+library(here)
+library(janitor)
+library(readr)
+library(dplyr)
+library(lubridate)
+```
+
+
+```{r defineVars}
+stn <- params$nwlonstn
+end_date <- params$end
+water_longterm_start <- params$waterstart
+water_set_start <- params$setstart
+water_19yr_start <- params$end - 18
+
+```
+
+This report generates various rates of water level change. Long-term rates should match what you see on the COOPS website for the selected NWLON station. Shorter-term rates were calculated using the same methods. A *.csv* file is generated and stored in the `csvs_for_SETr` subfolder of this directory, with today's date at the end. You can copy and paste straight into your row, columns D-M, of the SETr *slr_rates.csv* document in the metadata folder.   
+
+The following parameters were used:  
+
++  NWLON Station: `r stn`  
++  Ending Year:  `r end_date`  
++  Start year for SLR:  `r water_longterm_start`  
++  Start year for 19-year water level change:  `r water_19yr_start`  
++  Start year for SET data collection:  `r water_set_start`
+
+
+All calculations in this file result from an AR1 model on water level by date (as days) for the selected time frame. Rates and 95% CIs are converted to mm/yr by multiplying by 365.25 (to account for leap years).  
+
+```{r downloadPath}
+url_path <- paste0("https://tidesandcurrents.noaa.gov/sltrends/data/", stn, "_meantrend.csv")
+```
+
+Average monthly water level (detrended) was downloaded from:  
+
+`r url_path`  
+
+
+```{r downloadFile}
+out_name <- paste0(stn, ".csv")
+out_path <- here::here("data", out_name)
+
+download.file(url = url_path, 
+              destfile = out_path)
+print(paste0("Downloaded data from NWLON station ", stn))
+```
+
+
+```{r subsetData}
+dat_raw <- read_csv(out_path)
+dat <- dat_raw %>% 
+    clean_names() %>%
+    filter(year >= water_longterm_start,
+           year <= end_date) %>%
+    select(year, month, monthly_msl) %>%
+    mutate(date = ymd(paste0(year, month, "-01")),
+           monthly_msl_mm = monthly_msl * 1000)
+```
+
+## Long-term (period of record) SLR  
+
+```{r calcLongTerm}
+ari_out <- arima(dat$monthly_msl_mm, order = c(1, 0, 0), xreg = dat$date)
+
+trend_lt <- round(ari_out$coef[3] * 365.25, 2)
+se_lt <- round(sqrt(ari_out$var.coef[3, 3]) * 365.25, 4)
+confint_lt <- round(confint(ari_out)[3, ] * 365.25, 2)
+setr_plus_minus <- round(1.96*se_lt, 2)
+```
+
+Rate of change **(for SETr**, should match *"SLR rate (mm/yr)"*):  `r trend_lt` mm/yr  
+CI half-width **(for SETr**, should match *"+/- (95% CI)"*): `r setr_plus_minus`  
+Standard error:  `r se_lt`  
+95% CI:  `r confint_lt`  
+
+based on data from `r water_longterm_start` to `r end_date`  
+
+**for SETr**, make sure these dates are updated in your slr spreadsheet too (*data_start* and *data_end*).  
+
+
+## 19-year water level change  
+
+
+```{r calc19yr}
+dat_sub19 <- dat %>% 
+    filter(year >= water_19yr_start)
+
+ari_out19 <- arima(dat_sub19$monthly_msl_mm, order = c(1, 0, 0), xreg = dat_sub19$date)
+
+trend_19 <- round(ari_out19$coef[3] * 365.25, 2)
+se_19 <- round(sqrt(ari_out19$var.coef[3, 3]) * 365.25, 4)
+confint_19 <- round(confint(ari_out19)[3, ] * 365.25, 2)
+setr_plus_minus_19 <- round(1.96*se_19, 2)
+```
+
+
+Rate of change **(for SETr**, enter this under *"slr_19yr"*):  `r trend_19` mm/yr  
+CI half-width **(for SETr**, enter this under *"ci95_19yr"*): `r setr_plus_minus_19`  
+Standard error:  `r se_19`  
+95% CI:  `r confint_19`  
+
+based on data from `r water_19yr_start` to `r end_date`  
+
+**for SETr**, make sure these dates are updated in your slr spreadsheet too (*yr19_start* and *yr19_end*).  
+
+
+## SET measurement time period  
+
+```{r calcSETcollection}
+dat_subSET <- dat %>% 
+    filter(year >= water_set_start)
+
+ari_outSET <- arima(dat_subSET$monthly_msl_mm, order = c(1, 0, 0), xreg = dat_subSET$date)
+
+trend_SET <- round(ari_outSET$coef[3] * 365.25, 2)
+se_SET <- round(sqrt(ari_outSET$var.coef[3, 3]) * 365.25, 4)
+confint_SET <- round(confint(ari_outSET)[3, ] * 365.25, 2)
+```
+
+Rate of change:  `r trend_SET` mm/yr  
+Standard error:  `r se_SET`  
+95% CI:  `r confint_SET`  
+
+based on data from `r water_set_start` to `r end_date`  
+
+
+```{r}
+to_copy <- data.frame("NWLON Station Number" = stn,
+                      "SLR rate (mm/yr)" = trend_lt,
+                      "+/- (95% CI)" = setr_plus_minus,
+                      "data start" = water_longterm_start,
+                      "data end" = end_date,
+                      "set start" = water_set_start,
+                      "slr_19yr" = trend_19,
+                      "ci95_19yr" = setr_plus_minus_19,
+                      "yr19_start" = water_19yr_start,
+                      "yr19_end" = end_date,
+                      check.names = FALSE)
+csv_name <- paste0("local_slr_", Sys.Date(), ".csv")
+csv_out_path <- here::here("csvs_for_SETr", csv_name)
+write.csv(to_copy, csv_out_path, row.names = FALSE)
+
+print(paste0("File written to: ", csv_out_path))
+```
+
